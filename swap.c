@@ -19,28 +19,11 @@ struct thread_info {
 };
 
 struct args {
-    int             thread_num;       // application defined thread #
-    int             delay;            // delay between operations
-    int             iterations;
-    struct buffer   *buffer;          // Shared buffer
+    int				thread_num;       // application defined thread #
+    int				delay;			  // delay between operations
+    int				iterations;
+    struct buffer	*buffer;		  // Shared buffer
 };
-
-// Función para bloquear dos mutexes evitando interbloqueos
-void lock_positions(pthread_mutex_t *mutex1, pthread_mutex_t *mutex2) {
-    if (mutex1 < mutex2) {
-        pthread_mutex_lock(mutex1);
-        pthread_mutex_lock(mutex2);
-    } else {
-        pthread_mutex_lock(mutex2);
-        pthread_mutex_lock(mutex1);
-    }
-}
-
-// Función para desbloquear dos mutexes
-void unlock_positions(pthread_mutex_t *mutex1, pthread_mutex_t *mutex2) {
-    pthread_mutex_unlock(mutex1);
-    pthread_mutex_unlock(mutex2);
-}
 
 void *swap(void *ptr){
     struct args *args =  ptr;
@@ -50,14 +33,27 @@ void *swap(void *ptr){
         i = rand() % args->buffer->size;
         j = rand() % args->buffer->size;
 
-        // Bloquear los mutexes de las dos posiciones
-        lock_positions(&args->buffer->mutexes[i], &args->buffer->mutexes[j]);
+        // Para evitar interbloqueos, siempre bloqueamos el mutex con el índice más pequeño primero
+        if (i == j) {
+            args->iterations++; // Si las posiciones son iguales, no hacemos nada, pero no decrementamos iterations
+            continue;
+        }
+        else if (i < j)
+        {
+            pthread_mutex_lock(&args->buffer->mutexes[i]);
+            pthread_mutex_lock(&args->buffer->mutexes[j]);
+        }
+        else
+        {
+            pthread_mutex_lock(&args->buffer->mutexes[j]);
+            pthread_mutex_lock(&args->buffer->mutexes[i]);
+        }
 
         printf("Thread %d swapping positions %d (== %d) and %d (== %d)\n",
             args->thread_num, i, args->buffer->data[i], j, args->buffer->data[j]);
 
         tmp = args->buffer->data[i];
-        if(args->delay) usleep(args->delay);
+        if(args->delay) usleep(args->delay); // Force a context switch
 
         args->buffer->data[i] = args->buffer->data[j];
         if(args->delay) usleep(args->delay);
@@ -65,8 +61,14 @@ void *swap(void *ptr){
         args->buffer->data[j] = tmp;
         if(args->delay) usleep(args->delay);
 
-        // Desbloquear los mutexes de las dos posiciones
-        unlock_positions(&args->buffer->mutexes[i], &args->buffer->mutexes[j]);
+        // Desbloquear los mutexes en el orden inverso al que se bloquearon
+        if (i < j) {
+            pthread_mutex_unlock(&args->buffer->mutexes[j]);
+            pthread_mutex_unlock(&args->buffer->mutexes[i]);
+        } else {
+            pthread_mutex_unlock(&args->buffer->mutexes[i]);
+            pthread_mutex_unlock(&args->buffer->mutexes[j]);
+        }
 
         inc_count();
     }
@@ -87,7 +89,6 @@ void print_buffer(struct buffer buffer) {
     printf("\n");
 }
 
-
 void start_threads(struct options opt) {
     int i;
     struct thread_info *threads;
@@ -96,33 +97,33 @@ void start_threads(struct options opt) {
 
     srand(time(NULL));
 
-    if((buffer.data = malloc(opt.buffer_size * sizeof(int))) == NULL) {
+    if((buffer.data=malloc(opt.buffer_size*sizeof(int)))==NULL) {
         printf("Out of memory\n");
         exit(1);
     }
     buffer.size = opt.buffer_size;
 
-    // Inicializar array de mutexes
-    buffer.mutexes = malloc(opt.buffer_size * sizeof(pthread_mutex_t));
+    // Inicializar el array de mutexes
+    buffer.mutexes = malloc(sizeof(pthread_mutex_t) * opt.buffer_size);
     if (buffer.mutexes == NULL) {
         printf("Out of memory\n");
         exit(1);
     }
-    for (i = 0; i < buffer.size; i++) {
+    for (i = 0; i < opt.buffer_size; i++) {
         if (pthread_mutex_init(&buffer.mutexes[i], NULL) != 0) {
             printf("Mutex initialization failed\n");
             exit(1);
         }
     }
 
-    for(i = 0; i < buffer.size; i++)
-        buffer.data[i] = i;
+    for(i=0; i<buffer.size; i++)
+        buffer.data[i]=i;
 
     printf("creating %d threads\n", opt.num_threads);
     threads = malloc(sizeof(struct thread_info) * opt.num_threads);
     args = malloc(sizeof(struct args) * opt.num_threads);
 
-    if (threads == NULL || args == NULL) {
+    if (threads == NULL || args==NULL) {
         printf("Not enough memory\n");
         exit(1);
     }
@@ -139,7 +140,8 @@ void start_threads(struct options opt) {
         args[i].delay      = opt.delay;
         args[i].iterations = opt.iterations;
 
-        if (0 != pthread_create(&threads[i].thread_id, NULL, swap, &args[i])) {
+        if ( 0 != pthread_create(&threads[i].thread_id, NULL,
+                     swap, &args[i])) {
             printf("Could not create thread #%d", i);
             exit(1);
         }
@@ -159,14 +161,14 @@ void start_threads(struct options opt) {
 
     printf("iterations: %d\n", get_count());
 
-    // Destruir los mutexes
-    for (i = 0; i < buffer.size; i++) {
-        pthread_mutex_destroy(&buffer.mutexes[i]);
-    }
-
     free(args);
     free(threads);
     free(buffer.data);
+
+    // Destruir los mutexes
+    for (i = 0; i < opt.buffer_size; i++) {
+        pthread_mutex_destroy(&buffer.mutexes[i]);
+    }
     free(buffer.mutexes);
 
     pthread_exit(NULL);
@@ -187,4 +189,3 @@ int main (int argc, char **argv) {
 
     exit (0);
 }
-
