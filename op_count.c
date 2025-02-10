@@ -1,3 +1,7 @@
+//ISMAEL BREA ARIAS 
+//OSCAR ÁLVAREZ VIDAL
+//GRUPO 4.1
+
 #include <pthread.h>
 
 pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;

@@ -1,3 +1,7 @@
+//ISMAEL BREA ARIAS 
+//OSCAR ÁLVAREZ VIDAL
+//GRUPO 4.1
+
 #include <getopt.h>
 #include <string.h>
 #include <stdio.h>

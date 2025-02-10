@@ -1,3 +1,7 @@
+//ISMAEL BREA ARIAS 
+//OSCAR ÁLVAREZ VIDAL
+//GRUPO 4.1
+
 #ifndef __OPTIONS_H__
 #define __OPTIONS_H__
 
