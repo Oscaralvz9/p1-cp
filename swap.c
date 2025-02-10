@@ -1,6 +1,6 @@
-//ISMAEL BREA ARIAS 
-//OSCAR ÁLVAREZ VIDAL
-//GRUPO 4.1
+// ISMAEL BREA ARIAS 
+// OSCAR ÁLVAREZ VIDAL
+// GRUPO 4.1
 
 #include <errno.h>
 #include <pthread.h>
@@ -15,6 +15,7 @@ struct buffer {
     int *data;
     int size;
     pthread_mutex_t *mutexes; // Array de mutexes, uno por cada posición del buffer
+    pthread_mutex_t print_mutex; // Mutex adicional para la impresión
 };
 
 struct thread_info {
@@ -23,11 +24,15 @@ struct thread_info {
 };
 
 struct args {
-    int				thread_num;       // application defined thread #
-    int				delay;			  // delay between operations
-    int				iterations;
-    struct buffer	*buffer;		  // Shared buffer
+    int             thread_num;       // application defined thread #
+    int             delay;            // delay between operations
+    int             iterations;
+    struct buffer   *buffer;          // Shared buffer
+    int             print_wait;       // delay between prints of the array
 };
+
+// Prototipo de función para evitar declaración implícita
+void print_buffer(struct buffer *buffer);
 
 void *swap(void *ptr){
     struct args *args =  ptr;
@@ -53,8 +58,10 @@ void *swap(void *ptr){
             pthread_mutex_lock(&args->buffer->mutexes[i]);
         }
 
+        pthread_mutex_lock(&args->buffer->print_mutex);
         printf("Thread %d swapping positions %d (== %d) and %d (== %d)\n",
             args->thread_num, i, args->buffer->data[i], j, args->buffer->data[j]);
+        pthread_mutex_unlock(&args->buffer->print_mutex);
 
         tmp = args->buffer->data[i];
         if(args->delay) usleep(args->delay); // Force a context switch
@@ -79,17 +86,27 @@ void *swap(void *ptr){
     return NULL;
 }
 
-int cmp(int *e1, int *e2) {
-    if(*e1==*e2) return 0;
-    if(*e1<*e2) return -1;
-    return 1;
+void *print_thread(void *ptr) {
+    struct args *args = ptr;
+    while (1) {
+        usleep(args->print_wait * 1000); // Convertir ms a us
+        pthread_mutex_lock(&args->buffer->print_mutex);
+        printf("Current buffer state: ");
+        print_buffer(args->buffer);
+        pthread_mutex_unlock(&args->buffer->print_mutex);
+    }
+    return NULL;
 }
 
-void print_buffer(struct buffer buffer) {
-    int i;
+int cmp(const void *e1, const void *e2) {
+    int a = *(int *)e1;
+    int b = *(int *)e2;
+    return (a > b) - (a < b);
+}
 
-    for (i = 0; i < buffer.size; i++)
-        printf("%i ", buffer.data[i]);
+void print_buffer(struct buffer *buffer) {
+    for (int i = 0; i < buffer->size; i++)
+        printf("%i ", buffer->data[i]);
     printf("\n");
 }
 
@@ -101,7 +118,7 @@ void start_threads(struct options opt) {
 
     srand(time(NULL));
 
-    if((buffer.data=malloc(opt.buffer_size*sizeof(int)))==NULL) {
+    if((buffer.data = malloc(opt.buffer_size * sizeof(int))) == NULL) {
         printf("Out of memory\n");
         exit(1);
     }
@@ -120,22 +137,28 @@ void start_threads(struct options opt) {
         }
     }
 
-    for(i=0; i<buffer.size; i++)
-        buffer.data[i]=i;
+    // Inicializar el mutex de impresión
+    if (pthread_mutex_init(&buffer.print_mutex, NULL) != 0) {
+        printf("Print mutex initialization failed\n");
+        exit(1);
+    }
+
+    for(i = 0; i < buffer.size; i++)
+        buffer.data[i] = i;
 
     printf("creating %d threads\n", opt.num_threads);
     threads = malloc(sizeof(struct thread_info) * opt.num_threads);
     args = malloc(sizeof(struct args) * opt.num_threads);
 
-    if (threads == NULL || args==NULL) {
+    if (threads == NULL || args == NULL) {
         printf("Not enough memory\n");
         exit(1);
     }
 
     printf("Buffer before: ");
-    print_buffer(buffer);
+    print_buffer(&buffer);
 
-    // Create num_thread threads running swap()
+    // Crear los threads de swap
     for (i = 0; i < opt.num_threads; i++) {
         threads[i].thread_num = i;
 
@@ -144,27 +167,42 @@ void start_threads(struct options opt) {
         args[i].delay      = opt.delay;
         args[i].iterations = opt.iterations;
 
-        if ( 0 != pthread_create(&threads[i].thread_id, NULL,
-                     swap, &args[i])) {
-            printf("Could not create thread #%d", i);
+        if (pthread_create(&threads[i].thread_id, NULL, swap, &args[i]) != 0) {
+            printf("Could not create thread #%d\n", i);
             exit(1);
         }
     }
 
-    // Wait for the threads to finish
+    // Crear el thread de impresión
+    pthread_t print_thread_id;
+    struct args print_args;
+    print_args.buffer = &buffer;
+    print_args.print_wait = opt.print_wait;
+
+    if (pthread_create(&print_thread_id, NULL, print_thread, &print_args) != 0) {
+        printf("Could not create print thread\n");
+        exit(1);
+    }
+
+    // Esperar a que los threads terminen
     for (i = 0; i < opt.num_threads; i++)
         pthread_join(threads[i].thread_id, NULL);
 
-    // Print the buffer
-    printf("Buffer after:  ");
-    print_buffer(buffer);
+    // Cancelar y unir el thread de impresión
+    pthread_cancel(print_thread_id);
+    pthread_join(print_thread_id, NULL);
 
-    printf("Buffer after swapping (without sorting): ");
-    qsort(buffer.data, opt.buffer_size, sizeof(int), (int (*)(const void *, const void *)) cmp);
-    print_buffer(buffer);
+    // Imprimir el buffer final
+    printf("Buffer after: ");
+    print_buffer(&buffer);
 
-    printf("iterations: %d\n", get_count());
+    printf("Buffer after swapping (sorted): ");
+    qsort(buffer.data, opt.buffer_size, sizeof(int), cmp);
+    print_buffer(&buffer);
 
+    printf("Iterations: %d\n", get_count());
+
+    // Liberar memoria
     free(args);
     free(threads);
     free(buffer.data);
@@ -175,21 +213,25 @@ void start_threads(struct options opt) {
     }
     free(buffer.mutexes);
 
+    // Destruir el mutex de impresión
+    pthread_mutex_destroy(&buffer.print_mutex);
+
     pthread_exit(NULL);
 }
 
 int main (int argc, char **argv) {
     struct options opt;
 
-    // Default values for the options
+    // Valores por defecto
     opt.num_threads = 10;
     opt.buffer_size = 10;
     opt.iterations  = 100;
     opt.delay       = 10;
+    opt.print_wait  = 1000; // Default a 1 segundo
 
     read_options(argc, argv, &opt);
 
     start_threads(opt);
 
-    exit (0);
+    exit(0);
 }
