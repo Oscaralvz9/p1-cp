@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 #include "op_count.h"
 #include "options.h"
 
@@ -21,16 +22,18 @@ struct args {
     int				delay;			  // delay between operations
     int				iterations;
     struct buffer	*buffer;		  // Shared buffer
+    pthread_mutex_t *mutex;           // Mutex for protecting access 
 };
 
-void *swap(void *ptr)
-{
+void *swap(void *ptr){
     struct args *args =  ptr;
 
     while(args->iterations--) {
-        int i,j, tmp;
-        i=rand() % args->buffer->size;
-        j=rand() % args->buffer->size;
+        int i, j, tmp;
+        i = rand() % args->buffer->size;
+        j = rand() % args->buffer->size;
+
+        pthread_mutex_lock(args->mutex); // Bloquear el mutex antes de acceder al buffer
 
         printf("Thread %d swapping positions %d (== %d) and %d (== %d)\n",
             args->thread_num, i, args->buffer->data[i], j, args->buffer->data[j]);
@@ -43,8 +46,10 @@ void *swap(void *ptr)
 
         args->buffer->data[j] = tmp;
         if(args->delay) usleep(args->delay);
-        inc_count();
 
+        pthread_mutex_unlock(args->mutex); // Desbloquear el mutex después de acceder al buffer
+
+        inc_count();
     }
     return NULL;
 }
@@ -63,12 +68,18 @@ void print_buffer(struct buffer buffer) {
     printf("\n");
 }
 
-void start_threads(struct options opt)
-{
+void start_threads(struct options opt) {
     int i;
     struct thread_info *threads;
     struct args *args;
     struct buffer buffer;
+    pthread_mutex_t mutex;
+
+    // Inicializar el mutex
+    if (pthread_mutex_init(&mutex, NULL) != 0) {
+        printf("Mutex initialization failed\n");
+        exit(1);
+    }
 
     srand(time(NULL));
 
@@ -102,6 +113,7 @@ void start_threads(struct options opt)
         args[i].buffer     = &buffer;
         args[i].delay      = opt.delay;
         args[i].iterations = opt.iterations;
+        args[i].mutex = &mutex; // Pasar el mutex a los argumentos de los threads 
 
         if ( 0 != pthread_create(&threads[i].thread_id, NULL,
                      swap, &args[i])) {
@@ -116,8 +128,12 @@ void start_threads(struct options opt)
 
     // Print the buffer
     printf("Buffer after:  ");
+    print_buffer(buffer);
+
+    printf("Buffer after swapping (without sorting): ");
     qsort(buffer.data, opt.buffer_size, sizeof(int), (int (*)(const void *, const void *)) cmp);
     print_buffer(buffer);
+
 
     printf("iterations: %d\n", get_count());
 
@@ -125,11 +141,13 @@ void start_threads(struct options opt)
     free(threads);
     free(buffer.data);
 
+    // Destruir el mutex al final de la función
+    pthread_mutex_destroy(&mutex);
+
     pthread_exit(NULL);
 }
 
-int main (int argc, char **argv)
-{
+int main (int argc, char **argv) {
     struct options opt;
 
     // Default values for the options
@@ -144,3 +162,5 @@ int main (int argc, char **argv)
 
     exit (0);
 }
+
+
