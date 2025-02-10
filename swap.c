@@ -1,3 +1,7 @@
+//ISMAEL BREA ARIAS 
+//OSCAR ÁLVAREZ VIDAL
+//GRUPO 4.1
+
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
