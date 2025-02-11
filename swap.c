@@ -23,28 +23,43 @@ struct thread_info {
     int             thread_num;       // application defined thread #
 };
 
+struct shared_data {                // shared data between threads (including constant iterations and a mutex to protect it)
+    volatile int iterations;      
+    pthread_mutex_t mutex;
+};
+
 struct args {
     int             thread_num;       // application defined thread #
     int             delay;            // delay between operations
-    int             iterations;
     struct buffer   *buffer;          // Shared buffer
     int             print_wait;       // delay between prints of the array
+    struct shared_data *shared;       // shared data including iterations
 };
 
-// Prototipo de función para evitar declaración implícita
 void print_buffer(struct buffer *buffer);
 
 void *swap(void *ptr){
     struct args *args =  ptr;
 
-    while(args->iterations--) {
+    while(1) {
         int i, j, tmp;
+        
+        // Verifica si quedan iteraciones
+        pthread_mutex_lock(&args->shared->mutex);
+        if (args->shared->iterations <= 0) {
+            pthread_mutex_unlock(&args->shared->mutex);
+            break;
+        }
+        args->shared->iterations--;
+        pthread_mutex_unlock(&args->shared->mutex);
+
         i = rand() % args->buffer->size;
         j = rand() % args->buffer->size;
 
         // Para evitar interbloqueos, siempre bloqueamos el mutex con el índice más pequeño primero
         if (i == j) {
-            args->iterations++; // Si las posiciones son iguales, no hacemos nada, pero no decrementamos iterations
+            // Si i es igual a j, no hacemos swap y mantenemos las iteraciones constantes
+            args->shared->iterations++;
             continue;
         }
         else if (i < j)
@@ -115,6 +130,7 @@ void start_threads(struct options opt) {
     struct thread_info *threads;
     struct args *args;
     struct buffer buffer;
+    struct shared_data shared;
 
     srand(time(NULL));
 
@@ -143,6 +159,13 @@ void start_threads(struct options opt) {
         exit(1);
     }
 
+    // Inicializar shared data
+    shared.iterations = opt.iterations;
+    if (pthread_mutex_init(&shared.mutex, NULL) != 0) {
+        printf("Shared data mutex initialization failed\n");
+        exit(1);
+    }
+
     for(i = 0; i < buffer.size; i++)
         buffer.data[i] = i;
 
@@ -165,7 +188,7 @@ void start_threads(struct options opt) {
         args[i].thread_num = i;
         args[i].buffer     = &buffer;
         args[i].delay      = opt.delay;
-        args[i].iterations = opt.iterations;
+        args[i].shared     = &shared;
 
         if (pthread_create(&threads[i].thread_id, NULL, swap, &args[i]) != 0) {
             printf("Could not create thread #%d\n", i);
@@ -215,6 +238,9 @@ void start_threads(struct options opt) {
 
     // Destruir el mutex de impresión
     pthread_mutex_destroy(&buffer.print_mutex);
+
+    // Destruir el mutex de shared data
+    pthread_mutex_destroy(&shared.mutex);
 
     pthread_exit(NULL);
 }
