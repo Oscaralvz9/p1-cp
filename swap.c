@@ -31,7 +31,6 @@ struct args {
     int             print_wait;       // delay between prints of the array
 };
 
-// Prototipo de función para evitar declaración implícita
 void print_buffer(struct buffer *buffer);
 
 void *swap(void *ptr){
@@ -86,6 +85,12 @@ void *swap(void *ptr){
     return NULL;
 }
 
+void print_buffer(struct buffer *buffer) {
+    for (int i = 0; i < buffer->size; i++)
+        printf("%i ", buffer->data[i]);
+    printf("\n");
+}
+
 void *print_thread(void *ptr) {
     struct args *args = ptr;
     while (1) {
@@ -102,12 +107,6 @@ int cmp(const void *e1, const void *e2) {
     int a = *(int *)e1;
     int b = *(int *)e2;
     return (a > b) - (a < b);
-}
-
-void print_buffer(struct buffer *buffer) {
-    for (int i = 0; i < buffer->size; i++)
-        printf("%i ", buffer->data[i]);
-    printf("\n");
 }
 
 void start_threads(struct options opt) {
@@ -146,7 +145,6 @@ void start_threads(struct options opt) {
     for(i = 0; i < buffer.size; i++)
         buffer.data[i] = i;
 
-    printf("creating %d threads\n", opt.num_threads);
     threads = malloc(sizeof(struct thread_info) * opt.num_threads);
     args = malloc(sizeof(struct args) * opt.num_threads);
 
@@ -157,6 +155,9 @@ void start_threads(struct options opt) {
 
     printf("Buffer before: ");
     print_buffer(&buffer);
+
+    // Imprimir el número de hilos que se van a crear
+    printf("creating %d threads\n", opt.num_threads);
 
     // Crear los threads de swap
     for (i = 0; i < opt.num_threads; i++) {
