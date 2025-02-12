@@ -1,6 +1,6 @@
 //ISMAEL BREA ARIAS 
 //OSCAR ÁLVAREZ VIDAL
-//GRUPO 4.1
+//GRUPO 4.1+
 
 #include <errno.h>
 #include <pthread.h>
@@ -123,7 +123,6 @@ void start_threads(struct options opt) {
     for(i=0; i<buffer.size; i++)
         buffer.data[i]=i;
 
-    printf("creating %d threads\n", opt.num_threads);
     threads = malloc(sizeof(struct thread_info) * opt.num_threads);
     args = malloc(sizeof(struct args) * opt.num_threads);
 
@@ -134,6 +133,9 @@ void start_threads(struct options opt) {
 
     printf("Buffer before: ");
     print_buffer(buffer);
+
+    // Imprimir el número de hilos que se van a crear
+    printf("creating %d threads\n", opt.num_threads);
 
     // Create num_thread threads running swap()
     for (i = 0; i < opt.num_threads; i++) {
